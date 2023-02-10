@@ -1,0 +1,12 @@
+    function self = Mechanism(pars)
+
+      n_ODE = 5;
+      n_INV = 3;
+
+      self@DAC_ODEclass('Mechanism', n_ODE, n_INV);
+
+      self.m = pars(1);
+      self.g = pars(2);
+      self.ell = pars(3);
+
+    end

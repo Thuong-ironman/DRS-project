@@ -1,0 +1,27 @@
+    function res__h = h( self, t, vars__ )
+
+      % extract states
+      x = vars__(1);
+      y = vars__(2);
+      lambda = vars__(3);
+      x__dot = vars__(4);
+      y__dot = vars__(5);
+
+      % evaluate function
+      t1 = ell ^ 2;
+      t2 = x ^ 2;
+      t3 = y ^ 2;
+      res__1 = t1 - t2 - t3;
+      res__2 = 2 * x * x__dot + 2 * y * y__dot;
+      t8 = x__dot ^ 2;
+      t9 = y__dot ^ 2;
+      res__3 = 0.1e1 / m * (m * (2 * g * y - 2 * t8 - 2 * t9) + 4 * (t2 + t3) * lambda);
+      
+
+      % store on output
+      res__h = zeros(3,1);
+      res__h(1) = res__1;
+      res__h(2) = res__2;
+      res__h(3) = res__3;
+
+    end

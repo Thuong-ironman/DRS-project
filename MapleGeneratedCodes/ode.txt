@@ -1,0 +1,57 @@
+function res__f = f(self, t, vars__)
+
+  % States
+  x = vars__(1);
+  y = vars__(2);
+  lambda = vars__(3);
+  x__dot = vars__(4);
+  y__dot = vars__(5);
+
+  % Parameters 
+  m = self.m;
+  g = self.g;
+  ell = self.ell;
+
+  % Forces
+
+  % Matrix A
+  res__1_1 = 1;
+  res__2_2 = 1;
+  t1 = x ^ 2;
+  t2 = y ^ 2;
+  res__3_3 = 0.1e1 / m * (4 * t1 + 4 * t2);
+  res__3_4 = -4 * x__dot;
+  res__3_5 = -4 * y__dot;
+  res__4_4 = m;
+  res__5_5 = m;
+  
+  A = zeros(5,5);
+  A(1,1) = res__1_1;
+  A(2,2) = res__2_2;
+  A(3,3) = res__3_3;
+  A(3,4) = res__3_4;
+  A(3,5) = res__3_5;
+  A(4,4) = res__4_4;
+  A(5,5) = res__5_5;
+  
+  % Vector F
+  res__1_1 = x__dot;
+  res__2_1 = y__dot;
+  t1 = g * m;
+  t4 = x * lambda;
+  t7 = y * lambda;
+  res__3_1 = 0.1e1 / m * (-2 * y__dot * t1 - 8 * x__dot * t4 - 8 * y__dot * t7);
+  res__4_1 = -2 * t4;
+  res__5_1 = -t1 - 2 * t7;
+  
+  F = zeros(5,1);
+  F(1,1) = res__1_1;
+  F(2,1) = res__2_1;
+  F(3,1) = res__3_1;
+  F(4,1) = res__4_1;
+  F(5,1) = res__5_1;
+  
+  % Solution
+  res__f = linsolve(A, F);
+
+end

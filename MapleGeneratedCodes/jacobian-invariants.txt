@@ -1,0 +1,36 @@
+    function res__DhDx = DhDx( self, t, vars__ )
+
+      % extract states
+      x = vars__(1);
+      y = vars__(2);
+      lambda = vars__(3);
+      x__dot = vars__(4);
+      y__dot = vars__(5);
+
+      % evaluate function
+      res__1_1 = -2 * x;
+      res__1_2 = -2 * y;
+      res__2_1 = 2 * x__dot;
+      res__2_2 = 2 * y__dot;
+      res__2_4 = 2 * x;
+      res__2_5 = 2 * y;
+      res__3_1 = 8 * x / m * lambda;
+      res__3_2 = (2 * g * m + 8 * y * lambda) / m;
+      res__3_3 = (4 * x ^ 2 + 4 * y ^ 2) / m;
+      res__3_4 = -4 * x__dot;
+      res__3_5 = -4 * y__dot;
+      
+      % store on output
+      res__DhDx = zeros(3,5);
+      res__DhDx(1,1) = res__1_1;
+      res__DhDx(1,2) = res__1_2;
+      res__DhDx(2,1) = res__2_1;
+      res__DhDx(2,2) = res__2_2;
+      res__DhDx(2,4) = res__2_4;
+      res__DhDx(2,5) = res__2_5;
+      res__DhDx(3,1) = res__3_1;
+      res__DhDx(3,2) = res__3_2;
+      res__DhDx(3,3) = res__3_3;
+      res__DhDx(3,4) = res__3_4;
+      res__DhDx(3,5) = res__3_5;
+    end

@@ -1,0 +1,5 @@
+
+% parameters
+m = self.m;
+g = self.g;
+ell = self.ell;
