@@ -1,0 +1,56 @@
+function force = T_flap(vars)
+  theta = vars(1); 
+  v = vars(2);
+  drag_load = vars(3);
+
+  rho = 0.1225e1;
+  gamma_drag_car_test = 0.925e0;
+  gamma_down_car_test = 0.243e1;
+  gamma_rw_drag_test = 0.235e0;
+  gamma_rw_down_test = 0.92e0;
+  v_test = 50;
+  rad_to_deg = 0.180e3 / pi;
+  kfit0 = 0.107833333333333381e1;
+  kfit1 = 0.529999999999999694e0;
+  kfit2 = 0.361500000000000155e1;
+  kfit3 = 0.152999999999999936e1;
+  kfit4 = -0.306666666666666572e2;
+  kfit5 = -0.184523809523809756e0;
+  kfit6 = -0.236624999999999744e3;
+  kfit7 = 0.174464285714284628e1;
+  kfit8 = 0.191071428571429683e-1;
+  kfit9 = -0.799242424242423567e3;
+  kfit10 = 0.102738095238094758e2;
+  kfit11 = -0.144805194805193854e0;
+  kfit12 = 0.681818181818175475e-3;
+  kfit13 = -0.901515151515149711e2;
+  kfit14 = -0.561904761904764438e1;
+  kfit15 = -0.527056277056269021e-1;
+  kfit16 = 0.219696969696968943e-2;
+  kfit17 = 0.633578088578089016e1;
+  kfit18 = -0.288569930069919656e0;
+  kfit19 = 0.481879370629360107e-1;
+  kfit20 = -0.176247086247082211e-2;
+  kfit21 = 0.236101398601391960e-4;
+  kfit22 = -0.111538461538457581e-6;
+
+  t1 = (rho ^ 2);
+t2 = (gamma_rw_down_test ^ 2);
+t4 = v_test ^ 2;
+t5 = (t4 ^ 2);
+t14 = (45 * kfit10 + 2025 * kfit11 + 91125 * kfit12 + kfit13 + 45 * kfit14 + 2025 * kfit15 + 91125 * kfit16 + kfit9) ^ 2;
+t18 = ((kfit3 * drag_load + kfit2) ^ 2);
+t20 = (gamma_down_car_test ^ 2);
+t24 = (gamma_rw_drag_test ^ 2);
+t31 = (kfit4 + 45 * kfit5 + kfit6 + 45 * kfit7 + 2025 * kfit8) ^ 2;
+t35 = ((kfit1 * drag_load + kfit0) ^ 2);
+t37 = (gamma_drag_car_test ^ 2);
+t42 = sqrt((1 / t20 * t18 / t14 * t5 * t2 * t1 + 1 / t37 * t35 / t31 * t5 * t24 * t1));
+t43 = theta ^ 2;
+t44 = t43 ^ 2;
+t47 = rad_to_deg ^ 2;
+t48 = t47 ^ 2;
+t63 = v ^ 2;
+force = 0.1e1 / t4 * t63 * (t47 * rad_to_deg * t43 * theta * kfit20 + t48 * rad_to_deg * t44 * theta * kfit22 + kfit18 * theta * rad_to_deg + t47 * t43 * kfit19 + t48 * t44 * kfit21 + kfit17) * t42 / 0.2e1;
+
+end
