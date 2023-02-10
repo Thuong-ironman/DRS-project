@@ -1,0 +1,615 @@
+genPath := "MapleGeneratedCodes":
+
+FIRST_ORDER := proc(VARS::list)
+
+  local SUBSTITUTIONS, NEWODE, NEWVARS:
+
+  map(X->[X, cat(op(0,X),"__", vel)(t), cat(op(0,X),"__", acc)(t)], VARS):
+  NEWVARS := map(X->op(X), %):
+
+  map(X->[diff(X, t, t) = cat(op(0,X),"__", acc)(t), diff(X, t) = cat(op(0,X),"__", vel)(t)], VARS):
+  SUBSTITUTIONS := map(X->op(X), %):
+
+  map(X->[diff(X, t) = cat(op(0,X),"__", vel)(t), diff(cat(op(0,X),"__", vel)(t), t) = cat(op(0,X),"__", acc)(t)], VARS):
+  NEWODE := map(X->op(X), %):
+
+  NEWVARS, SUBSTITUTIONS, NEWODE:
+
+end proc:
+
+DAE_INITIALIZE := proc(NAME::string, NEEQNS::list, PHI::list, QVARS::list, RVARS::list)
+
+  return table([
+    "NAME"    = NAME,
+    "NEEQNS"  = NEEQNS,
+    "PHI"     = PHI,
+    "QVARS"   = QVARS,
+    "RVARS"   = RVARS
+  ]):  
+  
+end proc:
+
+DAE_SET_FORCE_LAWS := proc(OBJ::table, FORCES::list)
+  
+  if nops(FORCES) > 0 then
+    OBJ["FORCELAWS"] := FORCES:
+  end if:
+
+end proc:
+
+DAE_FIRST_ORDER := proc(OBJ::table)
+
+  local POS, VEL, NEEQNS, ODE:
+
+  printf("Reducing to first order the differential equations\n"):
+
+  POS := OBJ["QVARS"]:
+  VEL := map(X->cat(op(0,X),"__", vel)(t), POS):
+
+  NEEQNS := OBJ["NEEQNS"]:
+  ODE := [
+    op(subs(seq(diff(POS[i], t) = VEL[i], i=1..nops(POS)), NEEQNS)),
+    seq(seq(diff(POS[i], t) = VEL[i], i=1..nops(POS)))
+  ]:
+
+  OBJ["Q_POS"] := POS:
+  OBJ["Q_VEL"] := VEL:
+  OBJ["NE_FO"]   := ODE:
+  
+end proc:
+
+DAE_ASSEMBLY := proc(OBJ::table)
+
+  printf("Generating the full list of equations of the DAE\n"):
+  if (assigned(OBJ["Q_VEL"]) = false) then
+    DAE_FIRST_ORDER(OBJ):
+  end if;
+
+  OBJ["DAE"] := [ 
+    op(OBJ["NE_FO"]),
+    op(OBJ["PHI"])
+  ];
+
+  return OBJ:
+
+end proc:
+
+DAE_REDUCE_TO_ODE := proc(OBJ::table)
+
+  local VARS, DVARS, DAE, INV, E, G, A, r, N, ODE, J_ODE, J_INV:
+  pritntf("Reducing the DAE to an ODE.\n"):
+
+  if assigned(OBJ["DAE"]) = false then
+    DAE_ASSEMBLY(OBJ):
+  end if:
+
+  VARS := [
+    op(OBJ["Q_POS"]),
+    op(OBJ["Q_VEL"]),
+    op(OBJ["RVARS"])
+  ]:
+  DVARS := diff(VARS, t):
+  DAE   := OBJ["DAE"]:
+  N     := nops(VARS):
+  if N <> nops(DAE) then
+    printf("Error: DAE has %d equations while the variables are %d!\n", nops(DAE), N):
+    return:
+  end if:
+
+  INV := []:
+
+  printf("Index reduction steps; system size: %d\n", N):
+  printf(" > putting DAE in semi-explicit form"):
+  E, G, A, r := DAE_separate_algebraic_bis(DAE, DVARS):
+  INV := [op(INV), op(convert(A, list))]:
+  printf(", number of algebraic equations: %d\n", N-r):
+  printf(" > reducing index by 1"):
+  E, G, A, r := DAE_reduce_index_by_1(E, G, A, DVARS):
+  INV := [op(INV), op(convert(A, list))]:
+  printf(", order of E: %d\n", r):
+  printf(" > reducing index by 1"):
+  E, G, A, r := DAE_reduce_index_by_1(E, G, A, DVARS):
+  INV := [op(INV), op(convert(A, list))]:
+  printf(", order of E: %d\n", r):
+  printf(" > reducing index by 1"):
+  E, G, A, r := DAE_reduce_index_by_1(E, G, A, DVARS):
+  printf(", order of E: %d\n", r):
+
+  if r <> N then
+    printf("ERROR: After 3 index reduction, system still not ODE! Terminating...\n"):
+    return:
+  end if:
+
+  printf("System reduce to an ODE after 3 index reduction -> differential index = 3\n"):
+  printf("Number of invariants collected: %d\n", nops(INV));
+  printf("Computations:\n"):
+  printf(" > ODE... "):
+  ODE := simplify(LinearSolve(E, G)):
+  printf("done\n"):
+  printf(" > Jacobian of the ODE... "):
+  J_ODE := simplify(JACOBIAN(ODE, VARS)):
+  printf("done\n"):
+  printf(" > Jacobian of the invariants... "):
+  J_INV := simplify(JACOBIAN(INV, VARS)):
+  printf("done\n"):
+
+  OBJ["VARS"]   := VARS:
+  OBJ["ODE"]    := ODE:
+  OBJ["INV"]    := INV:
+  OBJ["J_ODE"]  := J_ODE:
+  OBJ["J_INV"]  := J_INV:
+  
+end proc:
+
+DAE_to_MATLAB := proc(OBJ::table, params)
+  
+  ## 
+  ## Solve ODE
+  ##
+  with(MBSymba_r6):
+  local VARS, DVARS, INV, ODE, J_INV, J_ODE, REMOVE_T:
+
+  if assigned(OBJ["ODE"]) = false then
+    DAE_REDUCE_TO_ODE(OBJ):
+  end if:
+
+  VARS  := OBJ["VARS"]:
+  ODE   := OBJ["ODE"]:
+  INV   := OBJ["INV"]:
+  J_ODE := OBJ["J_ODE"]:
+  J_INV := OBJ["J_INV"]:
+
+  REMOVE_T := map(x->x=op(0,x), VARS):
+
+  ##
+  ## EXPORT TO MATLAB
+  ##
+  local outfile, par, REMOVE_F, FORCE_CODE, REMOVE_DIFF, elem, nm, forces, DAE_name:
+  
+  DAE_name := OBJ["NAME"]:
+
+  if assigned(OBJ["FORCELAWS"]) = true then
+    forces := OBJ["FORCELAWS"]:
+  else forces := []:
+  end if:
+
+  if FileTools:-Exists(genPath) = false then
+    mkdir(genPath):
+  end if:
+
+  printf("Exporting models of the forces\n"):
+  REMOVE_DIFF := map(x -> diff(x, t) = cat(op(0, x), "__", vel), VARS):
+  REMOVE_F    := []:
+  FORCE_CODE  := []:
+  
+  for elem in forces do
+    nm := op(0, lhs(elem)):
+    REMOVE_F := [ op(REMOVE_F),
+      lhs(elem) = nm,
+      diff(lhs(elem), t) = diff_||nm
+    ]:
+    FORCE_CODE := [ op(FORCE_CODE),
+      nm = rhs(elem),
+      diff_||nm = diff(rhs(elem), t)
+    ]:
+  end do:
+  writeto(FileTools:-JoinPath([genPath, "forces.txt"])):
+  CodeGeneration[Matlab](subs(REMOVE_DIFF, REMOVE_T, FORCE_CODE), optimize=true):
+  writeto(terminal): 
+
+  printf("Exporting DAE-related information\n"):
+  outfile := fopen(FileTools:-JoinPath([genPath, "var-names.txt"]), WRITE):
+  for par in PARAMS do
+    fprintf(outfile, "%s\n", convert(lhs(par), string));
+  end do:
+  fclose(outfile);
+  outfile := fopen(FileTools:-JoinPath([genPath, "DAE-vars.txt"]), WRITE):
+  for par in VARS do
+    fprintf(outfile, "%s\n", convert(op(0, par), string));
+  end do:
+  fclose(outfile);
+        
+  outfile := fopen(FileTools:-JoinPath([genPath, "DAE-data.txt"]), WRITE):
+  fprintf(outfile, "%s\n", DAE_name):
+  fprintf(outfile, "%d %d", nops(VARS), nops(INV)):
+  fclose(outfile);
+
+  writeto(FileTools:-JoinPath([genPath, "var-values.txt"]) ):
+  CodeGeneration[Matlab](params):
+  writeto(terminal):
+  
+  printf("Converting and exporting ODE\n"):
+  writeto(FileTools:-JoinPath([genPath, "ode.txt"]) ):
+  F_TO_MATLAB( subs(REMOVE_F, REMOVE_T, ODE), subs(REMOVE_T, VARS), "f" ):
+  writeto(terminal):
+
+  printf("Converting and exporting jacobian of ODE\n"):
+  writeto(FileTools:-JoinPath([genPath, "jacobian-ode.txt"]) ):  
+  JF_TO_MATLAB( subs(REMOVE_F, REMOVE_T, J_ODE), subs(REMOVE_T, VARS), "DfDx" ):
+  writeto(terminal):
+  
+  printf("Converting and exporting invariants\n"):
+  writeto(FileTools:-JoinPath([genPath, "invariants.txt"]) ):
+  F_TO_MATLAB( subs(REMOVE_F, REMOVE_T, INV), subs(REMOVE_T, VARS), "h" ):
+  writeto(terminal):
+
+  printf("Converting and exporting jacobian of the invariants\n"):
+  writeto(FileTools:-JoinPath([genPath, "jacobian-invariants.txt"]) ):  
+  JF_TO_MATLAB( subs(REMOVE_F, REMOVE_T, J_INV), subs(REMOVE_T, VARS), "DhDx" ):
+  writeto(terminal):
+
+  # GENERATE MATLAB FILE
+  printf("Calling the codegen script\n"):
+  system(cat("wsl MatlabCodeGen/generate.sh ", OBJ["NAME"]));
+
+end proc:
+
+DAE_ADD_EQUATION := proc(OBJ::table, EQN, VAR)
+
+  if assigned(OBJ["DAE"]) = false then
+    DAE_ASSEMBLY(OBJ);
+  end if:
+
+  if has(OBJ["DAE"], EQN) = false then 
+    OBJ["DAE"] := [ op(OBJ["DAE"]), EQN]
+  end if:
+  if has(OBJ["RVARS"], VAR) = false then 
+    OBJ["RVARS"] := [ op(OBJ["RVARS"]), VAR]
+  end if:
+
+end proc:
+
+DAE_INITIAL_CONDITIONS := proc(OBJ::table, QI::list, QD::list, OTHER::list := [], SOLINDEX := 1)
+
+  if assigned(OBJ["NE_FO"]) = false then DAE_FIRST_ORDER(OBJ): end if:
+
+  local PHI, ALL_SOLS, S_POS, Q_VARS, V_VARS, R_VARS, VEL_SUBS, S_VEL, BIGVARS, BIGSYS, S_FORCE, VARS, F_LAWS, REMOVE_F:
+  if nops(QI)+nops(QD) <> nops(OBJ["Q_POS"]) then
+    printf("Error: provided coordinates (%d+%d) are not matching the ones of the DAE (%d)\n", nops(QI), nops(QD), nops(OBJ["Q_POS"])):
+    return:
+  end if:
+  PHI := OBJ["PHI"]:
+
+  ALL_SOLS := solve(PHI, QD):
+  if SOLINDEX > nops(ALL_SOLS) then SOLINDEX := 1 end if:
+  printf("The kinematic has %d solution, choosing %d\n", nops(ALL_SOLS), SOLINDEX):
+  S_POS := ALL_SOLS[SOLINDEX]:
+
+  Q_VARS   := [op(QI), op(QD)]:
+  V_VARS   := map(X->cat(op(0,X), "__", vel)(t), Q_VARS):
+  VEL_SUBS := [seq(diff(Q_VARS[i],t) = V_VARS[i], i=1..nops(Q_VARS))]:
+  
+  subs(VEL_SUBS, diff(PHI, t)):
+  subs(VEL_SUBS, diff(QD, t)):
+  S_VEL := op(solve(%%, %));
+
+  R_VARS := OBJ["RVARS"]:
+
+  BIGVARS := [
+    op(OBJ["RVARS"]),
+    op(diff(V_VARS, t))
+  ]:
+
+  BIGSYS := [
+    subs(VEL_SUBS, op(diff(Phi, t, t))),
+    op(OBJ["NE_FO"][1..nops(OBJ["NEEQNS"])])
+  ]:
+
+  S_FORCE := op(solve(BIGSYS, BIGVARS));
+
+  ## MATLAB code generation
+  if assigned(OBJ["VARS"]) = false then DAE_REDUCE_TO_ODE(OBJ): end if:
+
+  local file, filename, zerosubs, ind, _var, code, indep:
+  filename := cat(OBJ["NAME"], "_initial.m"):
+  local tmp := [op(Q_VARS), op(V_VARS), op(R_VARS)]:
+  zerosubs := map(X-> X = cat(op(0,X),0), tmp);
+
+  file := fopen(
+    FileTools:-JoinPath([genPath, filename]),
+    WRITE
+    ):
+
+  fprintf(file, "%%%% Independent coordinates\n");
+  printf("Remember to set values for the variables: "):
+  
+  for ind from 1 to nops(QI) do
+    _var := convert(subs(zerosubs, QI[ind]), string):
+    printf("%s, ", _var):
+    fprintf(file, "%s = 0;\n", _var):
+    _var := convert(subs(zerosubs, cat(op(0, QI[ind]), "__", vel)(t)), string):
+    printf("%s, ", _var):
+    fprintf(file, "%s = 0;\n", _var):
+  end do:
+  for ind from 1 to nops(OTHER) do
+    _var := convert(subs(zerosubs, OTHER[ind]), string):
+    printf("%s, ", _var):
+    fprintf(file, "%s = 0;\n", _var):
+  end do:
+  printf("\n"):
+
+  fprintf(file, "\n%%%% Positions\n"):
+  code := CodeGeneration[Matlab](subs(zerosubs, S_POS), output=string, optimize=true):
+  fprintf(file, "%s", code):
+  
+  fprintf(file, "\n%%%% Velocity\n"):
+  code := CodeGeneration[Matlab](subs(zerosubs, S_VEL), output=string, optimize=true):
+  fprintf(file, "%s", code):
+
+  F_LAWS := OBJ["FORCELAWS"]:
+  REMOVE_F := []:
+  if nops(F_LAWS) > 0 then
+    
+    fprintf(file, "\n%%%% Force models\n"):
+    REMOVE_F := map(X-> lhs(X) = cat(op(0,lhs(X)), 0), F_LAWS):
+    F_LAWS   := subs(REMOVE_F, zerosubs, F_LAWS):
+    code     := CodeGeneration[Matlab](F_LAWS, output=string, optimize=true):
+    fprintf(file, "%s", code):
+    
+  end if:
+  
+  fprintf(file, "\n%%%% Forces\n"):
+  code := CodeGeneration[Matlab](subs(REMOVE_F, zerosubs, S_FORCE[1..nops(R_VARS)]), output=string, optimize=true):
+  fprintf(file, "%s", code):
+  
+  fprintf(file, "\n%%%% Initial conditions vector\n"):
+  VARS := OBJ["VARS"]:
+  fprintf(file, "initial_conditions = ["):
+  for ind from 1 to nops(VARS)-1 do
+    fprintf(file, "%s; ", convert(subs(zerosubs, VARS[ind]), string)):
+  end do:
+  fprintf(file, "%s];\n", convert(subs(zerosubs, VARS[-1]), string)):
+
+  fclose(file):
+  S_FORCE;
+
+end proc:
+
+
+export_force := proc(exp, params)
+
+  local out := fopen(
+    cat(convert( op(0, lhs(exp)), string), ".m"),
+    WRITE
+  ):
+
+  fprintf(out, "function force = %s(vars)\n", convert(op(0,lhs(exp)), string)):
+  fprintf(out, "  theta = vars(1); \n  v = vars(2);\n  drag_load = vars(3);\n\n"):
+
+  for local p in params do
+    if has(rhs(exp), lhs(p)) then fprintf(out, "  %s", 
+      CodeGeneration[Matlab]([p], output=string) 
+    ) end if
+  end do:
+  fprintf(out, "\n"):
+
+  #fprintf(out, "  drag_load = vars(3);\n\n"):
+
+  fprintf(out, "  %s\n", 
+    CodeGeneration[Matlab](subs(v(t) = v, theta(t) = theta, rhs(exp)), output=string, resultname="force", optimize=true)
+    ):
+  fprintf(out, "end\n"):
+ 
+  fclose(out):
+end proc:
+
+DAE_to_MATLAB_BIS := proc(NAME::string, DAE::list, VARS::list, PARAMS::list)
+
+  local DVARS, A, F, H, R, N, INV:
+
+  N     := nops(VARS):
+  DVARS := diff(VARS, t):
+
+  # Index reduction
+  A, F, H, R := DAE_separate_algebraic_bis(DAE, DVARS):
+  INV   := H:
+  printf("Original system: %d algebraic constraints\n", N-R):
+  A, F, H, R := DAE_reduce_index_by_1(A, F, H, DVARS):
+  INV  := <INV, H>:
+  printf(" > After 1 index reduction -> %d algebraic constraints\n", N-R):
+  A, F, H, R := DAE_reduce_index_by_1(A, F, H, DVARS):
+  INV  := <INV, H>:
+  printf(" > After 1 index reduction -> %d algebraic constraints\n", N-R):
+  A, F, H, R := DAE_reduce_index_by_1(A, F, H, DVARS):
+  INV  := <INV, H>:
+  printf(" > After 1 index reduction -> %d algebraic constraints\n", N-R):
+
+  if R <> N then  
+    printf("Matrix E has rank %d, expected %d... Terminating\n", R, N):
+    return:
+  end if:
+
+  printf("ODE after 3 differentiation -> DAE was index 3\n"):
+  printf("Number of invariants collected: %d \n", Dimensions(INV)[1]);
+
+  A   := simplify(A):
+  F   := simplify(F):
+  INV := simplify(INV):
+
+  # Preliminary computations
+  local REMOVE_T, ETA, J_ETA, J_F, CODE_A, CODE_F, CODE_V, CODE_JF, CODE_JE:
+  printf("Computing additional elements...\n"):
+  REMOVE_T := map(X->X=op(0,X), VARS):
+
+  ETA     := A.<seq(eta||i, i=1..nops(VARS))>: 
+  J_ETA   := simplify(JACOBIAN(ETA, VARS)):
+  J_F     := simplify(JACOBIAN(F, VARS)):
+  
+  printf("Pre-generation of the codes...\n"):
+  CODE_V  := [seq(sprintf("%s = vars__(%d);", convert(op(0,VARS[i]), string), i), i=1..nops(VARS))]:
+  CODE_A  := EXPORT_MATRIX(subs(REMOVE_T, A), "A"):
+  CODE_F  := EXPORT_MATRIX(subs(REMOVE_T, F), "F"):
+  CODE_JF := EXPORT_MATRIX(subs(REMOVE_T, J_F), "J_F"):
+  CODE_JE := EXPORT_MATRIX(subs(REMOVE_T, J_ETA), "J_ETA"):
+
+  # Code generation
+  local FILE, STR, PAR:
+
+  printf("Exporting DAE-related informations...\n"):
+  FILE := fopen(FileTools:-JoinPath([genPath, "var-names.txt"]), WRITE):
+  for PAR in PARAMS do
+    fprintf(FILE, "%s\n", convert(lhs(PAR), string));
+  end do:
+  fclose(FILE);
+  FILE := fopen(FileTools:-JoinPath([genPath, "DAE-vars.txt"]), WRITE):
+  for PAR in VARS do
+    fprintf(FILE, "%s\n", convert(op(0, PAR), string));
+  end do:
+  fclose(FILE);        
+  FILE := fopen(FileTools:-JoinPath([genPath, "DAE-data.txt"]), WRITE):
+  fprintf(FILE, "%s\n", NAME):
+  fprintf(FILE, "%d %d", nops(VARS), Dimensions(INV)):
+  fclose(FILE);
+  writeto(FileTools:-JoinPath([genPath, "var-values.txt"]) ):
+  CodeGeneration[Matlab](PARAMS):
+  writeto(terminal):
+
+  FILE := fopen(FileTools:-JoinPath([genPath, "ode.txt"]), WRITE):
+
+  printf("Exporting ode...\n"):
+  fprintf(FILE,"function res__f = f(self, t, vars__)\n\n"):
+  fprintf(FILE, "  %% States\n"):
+  for STR in CODE_V do
+    fprintf(FILE, "  %s\n", STR);
+  end do:
+
+  fprintf(FILE, "\n  %% Parameters \n");
+  for PAR in PARAMS do
+    fprintf(FILE, "  %s = self.%s;\n", convert(lhs(PAR), string), convert(lhs(PAR), string))
+  end do:
+
+  fprintf(FILE, "\n  %% Forces\n"):
+  
+  fprintf(FILE, "\n  %% Matrix A\n"):
+  for STR in StringTools:-Split(CODE_A, "\n") do
+    fprintf(FILE, "  %s\n", STR):
+  end do:
+  
+  fprintf(FILE, "  %% Vector F\n"):
+  for STR in StringTools:-Split(CODE_F, "\n") do
+    fprintf(FILE, "  %s\n", STR):
+  end do:
+
+  fprintf(FILE, "  %% Solution\n"):
+  fprintf(FILE, "  res__f = linsolve(A, F);\n\n"):
+
+  fprintf(FILE, "end\n"):
+  fclose(FILE):
+
+  
+  printf("Exporting the jacobian of the ODE...\n");
+  FILE := fopen(FileTools:-JoinPath([genPath, "jacobian-ode.txt"]), WRITE):
+
+  fprintf(FILE,"function res__DfDx = DfDx(self, t, vars__)\n\n"):
+  fprintf(FILE, "  %% States\n"):
+  for STR in CODE_V do
+    fprintf(FILE, "  %s\n", STR);
+  end do:
+
+  fprintf(FILE, "\n  %% Parameters \n");
+  for PAR in PARAMS do
+    fprintf(FILE, "  %s = self.%s;\n", convert(lhs(PAR), string), convert(lhs(PAR), string))
+  end do:
+
+  fprintf(FILE, "\n  %% Forces\n"):
+
+  fprintf(FILE, "\n  %% Matrix A\n"):
+  for STR in StringTools:-Split(CODE_A, "\n") do
+    fprintf(FILE, "  %s\n", STR):
+  end do:
+  
+  fprintf(FILE, "  %% Vector F\n"):
+  for STR in StringTools:-Split(CODE_F, "\n") do
+    fprintf(FILE, "  %s\n", STR):
+  end do:
+
+  fprintf(FILE, "  %% Solution of the ODE and extraction of eta\n"):
+  fprintf(FILE, "  res__f = linsolve(A, F);\n"):
+  seq( 
+    fprintf(FILE, "  eta%d = res__f(%d);\n", i, i),
+    i=1..nops(VARS)
+  ):
+
+  fprintf(FILE, "\n  %% Jacobian of eta\n"):
+  for STR in StringTools:-Split(CODE_JE, "\n") do
+    fprintf(FILE, "  %s\n", STR):
+  end do:
+
+  fprintf(FILE, "\n  %% Jacobian of F\n"):
+  for STR in StringTools:-Split(CODE_JF, "\n") do
+    fprintf(FILE, "  %s\n", STR):
+  end do:
+
+  fprintf(FILE, "  %% Solution\n"):
+  fprintf(FILE, "  res__DfDx = linsolve(A, J_F - J_ETA);\n\n"):
+  fprintf(FILE, "end\n"):
+  fclose(FILE):
+
+  printf("Exporting the invariants...\n"):
+  writeto(FileTools:-JoinPath([genPath, "invariants.txt"]) ):
+  F_TO_MATLAB( subs(REMOVE_T, INV), subs(REMOVE_T, VARS), "h" ):
+  writeto(terminal):
+
+  printf("Exporting the jacobian of the invariants...\n"):
+  writeto(FileTools:-JoinPath([genPath, "jacobian-invariants.txt"]) ):  
+  JF_TO_MATLAB( subs(REMOVE_T, JACOBIAN(INV, VARS)), subs(REMOVE_T, VARS), "DhDx" ):
+  writeto(terminal):
+
+  printf("Calling the codegen script\n"):
+  system(cat("wsl MatlabCodeGen/generate.sh ", NAME));
+
+  return INV;
+end proc:
+
+
+EXPORT_MATRIX := proc(A::Matrix, NAME::string)
+
+  local ROWS, COLS, i, j, TMP, SUB, RES:
+  global LST:
+
+  ROWS, COLS := Dimensions(A):
+  LST := []:
+  SUB := "":
+  for i from 1 to ROWS do
+    for j from 1 to COLS do
+      TMP := simplify(A[i,j]):
+      if evalb(TMP <> 0) then
+        LST := [op(LST), convert("res__"||i||_||j, symbol) = TMP];
+        SUB := cat(SUB, sprintf("%s(%d,%d) = res__%d_%d;\n", NAME, i, j, i, j)):
+      end if:
+    end do:
+  end do:
+  RES := CodeGeneration[Matlab](LST,
+    output=string, optimize=true,
+    coercetypes=false, deducetypes=false
+    ):
+
+  RES := cat(RES, "\n",
+    sprintf("%s = zeros(%d,%d);\n", NAME, ROWS, COLS),
+    SUB
+  ):
+
+end proc:
+
+DAE_EXPORT_INITIAL := proc(VARS::list, INIT::list)
+
+  local REMOVE_T, FILE, STR, i:
+  # FILE = fopen("DRSmodel_initial.m", WRITE):
+
+  REMOVE_T := map(X->X=cat(op(0,X),0), VARS):
+
+  CodeGeneration[Matlab](INIT):
+
+  local TMP := subs(REMOVE_T, VARS);
+  printf("initial_conditions = [%s", convert(TMP[1], string)):
+  # fprintf(FILE, "initial_conditions = [%s", convert(TMP[1], string)):
+  for i from 2 to nops(TMP) do
+    printf("; %s", convert(TMP[i], string));
+    #fprintf(FILE, "; %s", convert(TMP[i], string));
+  end do:
+  printf("];");
+  # fprintf(FILE, "];");
+
+  # fclose(FILE);
+
+end proc:

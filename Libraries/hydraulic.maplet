@@ -1,0 +1,61 @@
+
+if assigned(data) = false then data := [] end if:
+
+data := [
+  op(data), 
+  Cd  = 0.61,       # orifice discharge coefficient 
+  rho_fluid  = 800, # kg/m^3  - fluid density
+  C1   = 2e-8,      # m^3/s/Pa - hydraulic resistance
+  C2   = 3e-9,      # m^3/s/Pa
+  beta = 7e+8,      # Pa       - bulk modulus of fluid
+  #Ac   = 1e-3,      # m^2      - cross section of piston
+  A0   = 0.001,     # m^2      - maximum orifice area
+  Ks   = 5e4,       # N/m
+  to_pas = 1e5,     # converts bars into pascals
+  epsilon = 0.01
+]:
+
+# Approximated function for the sign and absolute value
+Sign := x->tanh(x/epsilon):
+Abs  := x->sqrt(x^2+epsilon^2):
+
+hydr_vars := [
+  u(t),
+  p1(t),
+  p2(t),
+  p3(t),
+  q1lex(t),
+  q12(t),
+  q23(t),
+  V3(t),
+  F_act(t)
+]:
+
+hydr_qd := [
+  p1(t),
+  p2(t),
+  p3(t),
+  q1lex(t),
+  q12(t),
+  q23(t),
+  V3(t)
+]:
+
+Q(t) := Q/60000:
+Acyl := Pi/4*DD^2: #Ac
+Av := A0:
+Ac := Pi/4*DD:
+
+hydr_sys := [
+	Q = q12(t) + q1lex(t),
+	q1lex(t) = C2*p1(t)*to_pas,
+	q12(t) = Cd*A0*Sign((p1(t)-p2(t))*to_pas)*sqrt(2/rho_fluid * Abs(p1(t)*to_pas-p2(t)*to_pas) )*u(t),
+	q23(t) = q12(t),
+	q12(t) = C1*(p2(t)-p3(t))*to_pas,
+	V3(t)*diff(p3(t), t) = (q12(t) - diff(V3(t),t))*beta,
+	V3(t) = s(t)*Ac,
+	F_act(t) = p3(t)*to_pas*Ac
+]: 
+
+nops(hydr_vars) = nops(hydr_sys);
+

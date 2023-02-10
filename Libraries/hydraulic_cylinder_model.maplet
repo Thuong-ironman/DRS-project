@@ -1,0 +1,141 @@
+data := [
+  op(data), 
+  Cd  = 0.61,       # orifice discharge coefficient 
+  rho_fluid  = 800, # kg/m^3  - fluid density
+  C1   = 2e-8,      # m^3/s/Pa - hydraulic resistance
+  C2   = 3e-9,      # m^3/s/Pa
+  beta = 7e+8,      # Pa       - bulk modulus of fluid
+  Ac   = 1e-3,      # m^2      - cross section of piston
+  A0   = 0.001,     # m^2      - maximum orifice area
+  Ks   = 5e4,       # N/m
+  V30  = 2.5e-5,    # m^3      - initial cylinder volume for x(0)=0
+  To__Bar = 1e5
+];
+
+# Parameters of the model
+# Q(t):         pump flow
+# q__12(t):     control valve flow
+# q1__lex(t):   leakage flow
+# C2:           leakege flow coefficient;
+# p1(t):        pressure pump
+# p2(t):        pressure downstream control valve
+# p3(t):        pressure piston
+
+#Equation of flow rate consevartion and pressure drop
+block1_eqns := [
+  Q(t) = q__12(t)+q1__lex(t),
+  q1__lex(t)  = C2*p1(t)*To__Bar
+]:
+
+#Equation block 2
+# Turbulent flow through the control valve with the orifice equation. The sign and absolute value functions accomodate flow in either direction
+epsilon = 0.01: 
+
+Sign__reg := x->tanh(x/epsilon);
+Abs__reg  := x->sqrt(x^2+epsilon^2);
+
+block2_eqns := [
+  q__12(t)= Cd*A(t)*Sign__reg(p1(t)*To__Bar-p2(t)*To__Bar)*sqrt(2/rho_fluid*Abs__reg(p1(t)*To__Bar-p2(t)*To__Bar))
+  ]: 
+
+#Variable orifice area
+eq_A :=  A(t) = A0*u(t); 
+
+# Pressure drop before cylinder input
+block3b_eqns := [
+  q__23(t) = q__12(t),
+  q__12(t) = C1*(p2(t)*To__Bar-p3(t)*To__Bar)
+]:
+
+#Equation block 3
+Ac := Pi/4*DD^2:          # cylinder cross section area;
+
+V3(t):       # fluid volume at p3
+V30:         # fluid volume in piston at x=0
+
+block3_eqns := [
+  diff(p3(t)*To__Bar,t)*V3(t) = beta*(q__12(t)-diff(V3(t),t)),
+  V3(t) = V30+Ac*x(t)
+]:
+
+#Equation block 4
+#Here we should include the piston inertia 
+#If it is negligible we can get the force balance at the piston 
+
+block4_eqns := [
+  mp*diff(x(t),t,t) = p3(t)*To__Bar*Ac + F_act
+]: # We substitude the Actuator force from dynamic file
+
+#Assembling equations
+# We put all the equation together to get the DAE system.
+# The input is the pump flow rate and all the others are the generalized coordinates
+
+dae_hydr_sys := subs( eq_A,        # substitute model of orifice area control
+                block1_eqns union 
+                block2_eqns union 
+                block3_eqns union 
+                block3b_eqns union 
+                subs( mp=0, block4_eqns)): # we neglect the piston mass, therefore inertia
+
+q_vars := [q__12(t) ,q__23(t), q1__lex(t), V3(t),p1(t),p2(t),p3(t),x(t)];
+
+# Definition of input flow rate (m^3/sec)
+Q_in := piecewise(t<0.04, 0.005,
+                  t<0.05, 0.002,
+                  0.005
+);
+
+# Substitution chain for numerical solution of the system: order is important
+num_subs := abs__reg=Abs__reg, sign__reg = Sign__reg, data,  epsilon = 1e-4;
+
+# Initial condition
+
+ics_sol := map(x-> x = cat(op(0,x),'__0'),q_vars);
+ics_pars := convert(map(x-> cat(op(0,x),'__0'),q_vars),set);
+
+simplify(subs( ics_sol,num_subs, Q(t) = Q_in,    eval(dae_hydr_sys ))): <%>;
+tmp := evalf(subs( t=0,  convert(%,set)));
+
+AA,bb := GenerateMatrix(convert(tmp,list),convert(ics_pars,list));
+GaussianElimination(AA);
+
+num_ics_pars := solve(subs( p2__0 = 0, tmp)):
+num_ics_pars := num_ics_pars union {p2__0 = 0};
+
+# Check initial solution on the reduced system 
+evalf(subs( epsilon = 1e-4, num_ics_pars,  Q(t) = Q_in,t=0,eval(subs( ics_sol,  num_subs, DAE_sys_red))));
+
+convert(simplify(subs( num_subs, Q(t) = Q_in,    eval(DAE_sys_red ))),set) ;
+
+# Since the Q(T) changes with jumps a fast dynamics on Q(t) is added to make the dynamic continous.
+# The solution can be found in this case.
+
+TF := 0.12:
+dyna_sys :=  convert(simplify(subs( num_subs,    eval(DAE_sys_red ))),set) 
+              union {0.001*diff(Q(t),t)+Q(t)-Q_in}
+             union subs( num_ics_pars, {q__12(0) = q__12__0, p3(0)= p3__0, Q(0) = subs( t=0, Q_in)}) ;
+sol_dyna := dsolve(dyna_sys,numeric,stiff=true,range=0.0..TF);
+
+# Plot solution
+
+odeplot(sol_dyna,[[t,p3(t),color=c_set[1]],
+                  subs(   sol_lin_AE, num_subs,epsilon = 1e-4,Q(t) = Q_in,[t,p1(t),color=c_set[2]]),
+                  subs(   sol_lin_AE, num_subs,epsilon = 1e-4,Q(t) = Q_in,[t,p2(t),color=c_set[3]])],
+                  t=0..TF, legend = [p__3,p__1,p__2],labels=["time [s]", "[bar]"]);
+
+odeplot(sol_dyna,[subs( Q(t) = Q_in,[t,Q(t),color=c_set[1]])],t=0..TF);
+
+odeplot(sol_dyna,[subs(   sol_lin_AE, num_subs,epsilon = 1e-4,Q(t) = Q_in,[t,q1__lex(t),color=c_set[2]]),
+                  subs(   sol_lin_AE, num_subs,epsilon = 1e-4,Q(t) = Q_in,[t,q__12(t),color=c_set[3]])],
+                  t=0..TF, legend = [q1__lex,q__12],labels=["time [s]", typeset([m^3/s])]);
+
+odeplot(sol_dyna,[subs(   sol_lin_AE, num_subs,epsilon = 1e-4,Q(t) = Q_in,[t,x(t),color=c_set[2]])],
+                  t=0..TF, legend = [x],labels=["time [s]", typeset([m])]);
+
+
+
+
+
+
+
+

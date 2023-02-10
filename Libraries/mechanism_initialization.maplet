@@ -1,0 +1,27 @@
+printf("Data available for the car and DRS mechanism:"):
+data := [
+  L_flap    = 0.2,
+  x_flap    = 0.5555,     # Pivot point of the flap in ground coordinates
+  y_flap    = 0.5525,
+  theta_min = 45*Pi/180,  # angle in closed configuration 
+  theta_max = 70*Pi/180,  # angle in open configuration
+  xG_flap   = 0.110,      # coordinate of the flap in it's local reference frame
+  m_flap    = 0.2,        # mass of the flap
+  Iz_flap   = 1/12*0.2*3, # moment of inertia of the flap
+  Q         = 12,         # flow of the hydraulic circuit in [l/min]
+  p_max     = 200         # pressure of the oil in [bar]
+]:
+
+print(data);
+
+printf("Kinematic definitions:\n"):
+RF_flap := translate(x_flap, y_flap, 0).rotate('Z', 3/2*Pi-theta(t)):
+printf(" > RF_flap: reference frame\n"):
+P_pivot := origin(RF_flap):
+printf(" > P_pivot: pivot point of the flap\n"):
+P_flap_end := make_POINT(RF_flap, L_flap, 0, 0):
+printf(" > P_flap_end: other extremity of the flap\n"):
+G_flap := make_POINT(RF_flap, xG_flap, 0, 0):
+printf(" > G_flap: center of mass of the flap \n"):
+B_flap := make_BODY(G_flap, m_flap, 0, 0, Iz_flap):
+

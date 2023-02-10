@@ -1,0 +1,78 @@
+# Start inclusion guard
+if assigned(car_model_defined) = false then
+car_model_defined := true:
+
+read("Libraries\\force_model.maplet"):
+
+if assigned(data) = false then data := []: end if:
+
+data := [ op(data),
+  m_car     = 900,
+  g         = 9.81,       # gravity
+  r_wheel   = 0.33,
+  tau_gear  = 4.8615,
+  eta_motor = 0.95,
+  f0        = 0.025,      #1st rolling resistance coeff.
+  K0        = 0.0000065   #2nd rolling resistance coeff.
+]:
+
+printf("Data for the car:\n"):
+printf(" > mass of the car: %dkg\n", round(subs(data, m_car))):
+printf(" > wheel radius: %.2fm\n", subs(data, r_wheel)):
+printf(" > transmission efficientcy: %d%%\n", round(subs(data, eta_motor*100))):
+printf(" > wheel radius: %.2fm\n", subs(data, r_wheel)):
+
+vect_RPMS := [seq(i*1000, i=5..15)]:
+vect_TORQUES := [
+  650,
+  650,
+  645,
+  640,
+  640,
+  640,
+  635,
+  600,
+  550,
+  460,
+  390
+]:
+
+interpolation := Statistics:-PolynomialFit(2, vect_RPMS, vect_TORQUES, x):
+generalize_poly('interpolation', x, 2):
+torque_curve := display(
+  pointplot(vect_RPMS, vect_TORQUES, legend = "Data"),
+  plot(subs(data, interpolation), x = 5000..15000, legend = "Interpolation"),
+  view = [4500..15500, 240..660],
+  labels = [typeset("RPM"), typeset("T [", Nm, "]")]
+):
+
+
+Phi_car := [
+  T_motor(t)      = subs(x = omega_motor(t)*30/Pi, interpolation),
+  P_motor(t)      = omega_motor(t)*T_motor(t),
+  P_shaft(t)      = eta_motor*P_motor(t),
+  omega_motor(t)  = omega_shaft(t)*tau_gear,
+  T_shaft(t)      = P_shaft(t)/omega_shaft(t),
+  T_shaft(t)      = F_tyres(t)*r_wheel,
+  omega_shaft(t)  = v(t)/r_wheel
+]:
+
+rolling_force := F_roll(t) = subs(F_tot_down_law, (F_tot_down(t) + m_car*g)*(f0 + K0*v(t)^2) ):
+force_laws := [ op(force_laws),
+  rolling_force
+]:
+
+car_vars := [
+  P_motor(t), P_shaft(t), 
+  omega_motor(t), omega_shaft(t), 
+  T_shaft(t), T_motor(t), F_tyres(t)
+]:
+car_motor := solve(Phi_car, car_vars)[1]:
+
+force_laws := [ 
+  op(force_laws),
+  op(car_motor)
+]:
+NE_eqns_car := m_car*diff(v(t),t) = F_tyres(t) - F_roll(t) - F_tot_drag(t): 
+
+end if: # End inclusion guard

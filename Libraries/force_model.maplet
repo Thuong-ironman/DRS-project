@@ -1,0 +1,200 @@
+# Start inclusion guard
+if assigned(force_model_defined) = false then
+force_model_defined := true:
+
+# Procedure to extract parameters of polynomial fits and make them variables
+generalize_poly := proc(function::symbol, var, order)
+
+  local poly, c, kcoeff_init, n, elem:
+  global kcoeff, data:
+
+  if assigned(data) = false then data := [] end if:
+  if assigned(kcoeff) = false then kcoeff := 0 end if:
+  kcoeff_init := kcoeff:
+
+  poly := eval(function):
+  for n from 0 to order do
+    c      := coeff(poly, var, n):
+    data   := [op(data), kfit||kcoeff = c]:
+    kcoeff := kcoeff + 1:
+  end do:
+
+  [seq(kfit||(kcoeff_init+i) * var^i, i=0..order)]:
+  function := add(elem, elem in %):
+
+end proc:
+
+#
+# Definition of the main parameters
+#
+
+if assigned(data) = false then
+  data := []:
+end if:
+
+data := [ op(data),
+  rho                 = 1.225,
+  gamma_drag_car_test = 0.925,
+  gamma_down_car_test = 2.43,
+  gamma_rw_drag_test  = 0.235,
+  gamma_rw_down_test  = 0.92,
+  v_test              = 50,     # test velocity in [m/s]
+  rad_to_deg          = 180/Pi
+]:
+
+gamma_drag_test := gamma_drag_car_test + gamma_rw_drag_test:
+gamma_down_test := gamma_down_car_test + gamma_rw_down_test:
+
+#
+# Actual drag of the car as function of the load drag_load in [0,1]
+#
+
+drag_car_load_mdl := Statistics:-PolynomialFit(1,
+  [0,     0.5,  1],
+  [1.08,  1.34, 1.61],
+  x):
+down_car_load_mdl := Statistics:-PolynomialFit(1,
+  [0,     0.5,  1],
+  [3.63,  4.35, 5.16],
+  x):
+generalize_poly('drag_car_load_mdl', x, 1):
+generalize_poly('down_car_load_mdl', x, 1):
+
+gamma_drag := subs(x=drag_load, drag_car_load_mdl):
+gamma_down := subs(x=drag_load, down_car_load_mdl):
+
+#
+# Interpolation of datas from Dimatrogiovanni paper
+#
+data_angles_flap := [seq(10*i, i=0..7)]:
+data_drag_main := [
+  -30,
+  -40,
+  -35,
+  -30,
+  -35,
+  -35,
+  -42,
+  -50
+]: 
+data_drag_flap := [
+  -230,
+  -210,
+  -220,
+  -170,
+  -130,
+  -92,
+  -50,
+  -35
+]:
+data_down_main := [
+  -780,
+  -760,
+  -620,
+  -590,
+  -570,
+  -580,
+  -560,
+  -550
+]: 
+data_down_flap := [
+  -100,
+  -120,
+  -230,
+  -250,
+  -250,
+  -230,
+  -140,
+  10
+]:
+data_torque_flap := [
+  6.4,
+  6.4,
+  9.8,
+  9.4,
+  8,
+  5.2,
+  0.8,
+  -2.8
+]:
+
+main_data_drag_interp := Statistics:-PolynomialFit(1, data_angles_flap, data_drag_main, x):
+flap_data_drag_interp := Statistics:-PolynomialFit(2, data_angles_flap, data_drag_flap, x):
+main_data_down_interp := Statistics:-PolynomialFit(3, data_angles_flap, data_down_main, x):
+flap_data_down_interp := Statistics:-PolynomialFit(3, data_angles_flap, data_down_flap, x):
+data_torque_interp    := Statistics:-PolynomialFit(5, data_angles_flap, data_torque_flap, x):
+generalize_poly('main_data_drag_interp', x, 1):
+generalize_poly('flap_data_drag_interp', x, 2):
+generalize_poly('main_data_down_interp', x, 3):
+generalize_poly('flap_data_down_interp', x, 3):
+generalize_poly('data_torque_interp', x, 5):
+wing_data_drag_interp := main_data_drag_interp + flap_data_drag_interp:
+wing_data_down_interp := main_data_down_interp + flap_data_down_interp:
+
+drag_interp_plot := display(
+  pointplot(data_angles_flap, data_drag_main, legend="Main data", color=cp[1]),
+  pointplot(data_angles_flap, data_drag_flap, legend="Flap data", color=cp[2]),
+  plot(subs(data, main_data_drag_interp), x=0..70, legend="Main interp.", color=cp[1]),
+  plot(subs(data, flap_data_drag_interp), x=0..70, legend="Flap interp.", color=cp[2]),
+  labels = [typeset(theta(t), " [°]"), typeset(F__drag(t), " [N]")],
+  view = [-10..80, -250..0],
+  title = "Drag-force model - Dimastrogiovanni paper"
+):
+
+down_interp_plot := display(
+  pointplot(data_angles_flap, data_down_main, legend="Main data", color=cp[1]),
+  pointplot(data_angles_flap, data_down_flap, legend="Flap data", color=cp[2]),
+  plot(subs(data, main_data_down_interp), x=0..70, legend="Main interp.", color=cp[1]),
+  plot(subs(data, flap_data_down_interp), x=0..70, legend="Flap interp.", color=cp[2]),
+  labels = [typeset(theta(t), " [°]"), typeset(F__down(t), " [N]")],
+  view = [-10..80, -850..50],
+  title = "Down-force model - Dimastrogiovanni paper"
+):
+
+torque_interp_plot := display(
+  pointplot(data_angles_flap, data_torque_flap, legend="Flap data", color=cp[1]),
+  plot(subs(data, data_torque_interp), x=0..70, legend="Flap interp.", color=cp[2]),
+  labels = [typeset(theta(t), " [°]"), typeset(T__flap(t), " [Nm]")],
+  view = [-10..80, -4..12],
+  title = "Torque model - w.r.t pivot point - Dimastrogiovanni paper"
+):
+
+#
+# Apply a linear rescaling of the data by Dimastrogiovanni on the data given
+# by Ravelli
+#
+1/2*rho*gamma_rw_drag_test*v_test^2:
+subs(x=45, wing_data_drag_interp):
+K_drag := %%/% * (gamma_drag/gamma_drag_car_test):
+
+1/2*rho*gamma_rw_down_test*v_test^2:
+subs(x=45, wing_data_down_interp):
+K_down := %%/% * (gamma_down/gamma_down_car_test):
+
+K_torque := sqrt(K_drag^2+K_down^2):
+
+vel_coeff := (v(t)/v_test)^2:
+
+F_drag_law  := F_drag(t) = K_drag * 1/2 * rho * subs(x=theta(t)*rad_to_deg, flap_data_drag_interp) * vel_coeff;
+F_down_law  := F_down(t) = K_down * 1/2 * rho * subs(x=theta(t)*rad_to_deg, flap_data_down_interp) * vel_coeff;
+T_flap_law  := T_flap(t) = K_torque * subs( x= theta(t)*rad_to_deg, data_torque_interp) * vel_coeff:
+
+K_drag * subs(x=45, wing_data_drag_interp) * vel_coeff:
+K_drag * subs(x=theta(t)*rad_to_deg, wing_data_drag_interp) * vel_coeff:
+F_tot_drag_law := F_tot_drag(t) = 1/2*rho*gamma_drag*v(t)^2 - %% + %:
+
+K_down * subs(x=45, wing_data_down_interp) * vel_coeff:
+K_down * subs(x=theta(t)*rad_to_deg, wing_data_down_interp) * vel_coeff:
+F_tot_down_law := F_tot_down(t) = 1/2*rho*gamma_down*v(t)^2 - %% + %:
+
+if assigned(force_laws) = false then force_laws := []: end if:
+force_laws := [ op(force_laws),
+  F_drag_law, F_down_law, T_flap_law, 
+  F_tot_drag_law, F_tot_down_law
+]:
+
+printf("Defined the laws for the forces acting on the rear wing\n"):
+printf(" > use substitution \"force_laws\" to access F_drag(t), F_down(t),T_flap(t)\n"):
+printf(" > remember to specify the variable drag_load, range [0,1]\n"):
+
+end if: # End inclusion guard

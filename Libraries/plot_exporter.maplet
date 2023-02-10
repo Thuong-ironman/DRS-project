@@ -1,0 +1,56 @@
+with(plots):
+
+cp := ColorTools:-GetPalette("dalton"):
+
+plots[setcolors]("dalton"):
+plots[setoptions](
+  axes=boxed,
+  size=[800,300],
+  # axis[2]=[gridlines=[linestyle=dash]],
+  axis=[gridlines],
+  legendstyle=[location=bottom]
+);
+
+plot_save := proc(plt, file_name, width := 0, height := 0)
+
+  local multiplier, dim_x, dim_y:
+
+  multiplier := 70:
+
+  if width = 0 then 
+    dim_x := 6.0:
+  else 
+    dim_x := width:
+  end if:
+  if height = 0 then 
+    dim_y := 3.0:
+  else 
+    dim_y := height:
+  end if:
+
+  if save_plots = true then
+    plottools:-exportplot(cat(file_name, ".svg"), display(
+      plt,
+      size = [dim_x*multiplier, dim_y*multiplier],
+      titlefont   = [FIRA,12], 
+      labelfont   = [FIRA,10], 
+      axesfont    = [FIRA,9], 
+      captionfont = [FIRA,8], 
+      legendstyle = [font=[FIRA,10]]
+    )):
+    printf("Exported figure as \"%s\"\n", cat(file_name, ".svg")):
+end if:
+end proc:
+
+plot_dimensions := proc(dim_x := 0, dim_y := 0)
+  local multiplier := 70;
+  if dim_x = 0 then dim_x := 6  end if:
+  if dim_y = 0 then dim_y := 3  end if:
+
+  plots[setoptions](
+    axes=boxed,
+    size=[dim_x*multiplier, dim_y*multiplier],
+    axis[2]=[gridlines=[linestyle=dot]],
+    legendstyle=[location=bottom]
+  );
+end proc:

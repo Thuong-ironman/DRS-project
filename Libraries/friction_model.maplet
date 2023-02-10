@@ -1,0 +1,30 @@
+data := [m  = 1,
+         s_max = 80*10^3, # m
+         s_min = 0,
+         t_max = 0.1, # s
+         ks = 10, #spring stiffness
+         c  = 0.13,   
+         Fc = 1.5,
+         mu_c = 1.0/1/9.81,# Fs/Fn
+         vs =0.1, #weakening velocity
+         x0 = 0 # initial spring deformation
+        ];
+
+Fspring := ks*(V0*t-x(t));
+
+eqns_0 := [diff(x(t),t)-v(t),
+           diff(v(t),t)-1/m*(+Ff(t)+Fspring)]: <%>;
+
+#Coulomb friction model: no stribeck
+Ffric_C := Ff(t) = -Sign(v(t))*FF-c*v(t); 
+Sign := v->sin(arctan(v/vth));
+dSv := subs( v=0,diff(Sign(v),v));
+
+# Equation with coulomb model
+dataA := vth = 0.1,V0 = (s_max-s_min)/t_max, data;
+
+
+eqns_C := subs( Ffric_C,FF=Fc, F_act(t) = F_act, eqns_0 ):
+ICs_C := x(0) = x0, v(0) = 0.0:
+
+sol_C := dsolve(subs(dataA,{op(eqns_C),ICs_C}),numeric,stiff=true);

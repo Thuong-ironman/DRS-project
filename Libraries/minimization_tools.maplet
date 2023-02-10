@@ -1,0 +1,3 @@
+bound_cost := proc(val, lower, upper, substitutions)
+	return evalf((subs(substitutions, min(val, lower)-lower + max(val, upper) - upper))^2):
+end proc:
